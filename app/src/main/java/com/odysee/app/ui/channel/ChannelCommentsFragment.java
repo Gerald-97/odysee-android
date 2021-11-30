@@ -27,7 +27,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.request.RequestOptions;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.math.BigDecimal;
@@ -41,28 +40,20 @@ import com.odysee.app.adapter.ClaimListAdapter;
 import com.odysee.app.adapter.CommentItemDecoration;
 import com.odysee.app.adapter.CommentListAdapter;
 import com.odysee.app.adapter.InlineChannelSpinnerAdapter;
-import com.odysee.app.listener.WalletBalanceListener;
 import com.odysee.app.model.Claim;
 import com.odysee.app.model.Comment;
-import com.odysee.app.model.WalletBalance;
 import com.odysee.app.tasks.CommentCreateTask;
 import com.odysee.app.tasks.CommentListHandler;
 import com.odysee.app.tasks.CommentListTask;
-import com.odysee.app.tasks.claim.ChannelCreateUpdateTask;
 import com.odysee.app.tasks.claim.ClaimListResultHandler;
 import com.odysee.app.tasks.claim.ClaimListTask;
-import com.odysee.app.tasks.claim.ClaimResultHandler;
 import com.odysee.app.tasks.claim.ResolveTask;
-import com.odysee.app.tasks.lbryinc.LogPublishTask;
 import com.odysee.app.utils.Helper;
 import com.odysee.app.utils.Lbry;
 import com.odysee.app.utils.LbryAnalytics;
-import com.odysee.app.utils.LbryUri;
-import com.odysee.app.utils.Lbryio;
-
 import lombok.Setter;
 
-public class ChannelCommentsFragment extends Fragment implements WalletBalanceListener {
+public class ChannelCommentsFragment extends Fragment {
 
     @Setter
     private Claim claim;
@@ -85,18 +76,12 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
     private TextInputEditText inputComment;
     private TextView textCommentLimit;
     private MaterialButton buttonPostComment;
+    private MaterialButton buttonCreateChannel;
     private ImageView commentPostAsThumbnail;
     private View commentPostAsNoThumbnail;
     private TextView commentPostAsAlpha;
 
-    private View inlineChannelCreator;
-    private TextInputEditText inlineChannelCreatorInputName;
-    private TextInputEditText inlineChannelCreatorInputDeposit;
-    private View inlineChannelCreatorInlineBalance;
-    private TextView inlineChannelCreatorInlineBalanceValue;
-    private View inlineChannelCreatorCancelLink;
-    private View inlineChannelCreatorProgress;
-    private MaterialButton inlineChannelCreatorCreateButton;
+    ChannelCreateDialogFragment channelCreationBottomSheet;
 
     public View onCreateView(@NonNull LayoutInflater inflater,
                              ViewGroup container, Bundle savedInstanceState) {
@@ -113,46 +98,21 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
         inputComment = root.findViewById(R.id.comment_form_body);
         textCommentLimit = root.findViewById(R.id.comment_form_text_limit);
         buttonPostComment = root.findViewById(R.id.comment_form_post);
+        buttonCreateChannel = root.findViewById(R.id.create_channel_button);
         commentPostAsThumbnail = root.findViewById(R.id.comment_form_thumbnail);
         commentPostAsNoThumbnail = root.findViewById(R.id.comment_form_no_thumbnail);
         commentPostAsAlpha = root.findViewById(R.id.comment_form_thumbnail_alpha);
-
-        inlineChannelCreator = root.findViewById(R.id.container_inline_channel_form_create);
-        inlineChannelCreatorInputName = root.findViewById(R.id.inline_channel_form_input_name);
-        inlineChannelCreatorInputDeposit = root.findViewById(R.id.inline_channel_form_input_deposit);
-        inlineChannelCreatorInlineBalance = root.findViewById(R.id.inline_channel_form_inline_balance_container);
-        inlineChannelCreatorInlineBalanceValue = root.findViewById(R.id.inline_channel_form_inline_balance_value);
-        inlineChannelCreatorProgress = root.findViewById(R.id.inline_channel_form_create_progress);
-        inlineChannelCreatorCancelLink = root.findViewById(R.id.inline_channel_form_cancel_link);
-        inlineChannelCreatorCreateButton = root.findViewById(R.id.inline_channel_form_create_button);
 
         RecyclerView commentList = root.findViewById(R.id.channel_comments_list);
         commentList.setLayoutManager(new LinearLayoutManager(getContext()));
 
         initCommentForm(root);
-        setupInlineChannelCreator(
-                inlineChannelCreator,
-                inlineChannelCreatorInputName,
-                inlineChannelCreatorInputDeposit,
-                inlineChannelCreatorInlineBalance,
-                inlineChannelCreatorInlineBalanceValue,
-                inlineChannelCreatorCancelLink,
-                inlineChannelCreatorCreateButton,
-                inlineChannelCreatorProgress,
-                commentChannelSpinner,
-                commentChannelSpinnerAdapter
-        );
 
         return root;
     }
 
     public void onResume() {
         super.onResume();
-        Context context = getContext();
-
-        if (context instanceof MainActivity) {
-            ((MainActivity) context).addWalletBalanceListener(this);
-        }
 
         fetchChannels();
         checkAndLoadComments();
@@ -160,11 +120,6 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
 
     public void onStop() {
         super.onStop();
-        Context context = getContext();
-        if (context instanceof MainActivity) {
-            MainActivity activity = (MainActivity) context;
-            activity.removeWalletBalanceListener(this);
-        }
     }
 
     private void checkAndLoadComments() {
@@ -191,8 +146,8 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
 
     private void loadComments() {
         View root = getView();
-        ProgressBar relatedLoading = root.findViewById(R.id.channel_comments_progress);
         if (claim != null && root != null) {
+            ProgressBar relatedLoading = root.findViewById(R.id.channel_comments_progress);
             CommentListTask task = new CommentListTask(1, 200, claim.getClaimId(), relatedLoading, new CommentListHandler() {
                 @Override
                 public void onSuccess(List<Comment> comments, boolean hasReachedEnd) {
@@ -280,13 +235,6 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
         }
     }
 
-    @Override
-    public void onWalletBalanceUpdated(WalletBalance walletBalance) {
-        if (walletBalance != null && inlineChannelCreatorInlineBalanceValue != null) {
-            inlineChannelCreatorInlineBalanceValue.setText(Helper.shortCurrencyFormat(walletBalance.getAvailable().doubleValue()));
-        }
-    }
-
     private void fetchChannels() {
         if (Lbry.ownChannels != null && Lbry.ownChannels.size() > 0) {
             updateChannelList(Lbry.ownChannels);
@@ -314,7 +262,6 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
     }
     private void disableChannelSpinner() {
         Helper.setViewEnabled(commentChannelSpinner, false);
-        hideInlineChannelCreator();
     }
     private void enableChannelSpinner() {
         Helper.setViewEnabled(commentChannelSpinner, true);
@@ -323,17 +270,36 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
             if (selectedClaim != null) {
                 if (selectedClaim.isPlaceholder()) {
                     showInlineChannelCreator();
-                } else {
-                    hideInlineChannelCreator();
                 }
             }
         }
     }
     private void showInlineChannelCreator() {
-        Helper.setViewVisibility(inlineChannelCreator, View.VISIBLE);
-    }
-    private void hideInlineChannelCreator() {
-        Helper.setViewVisibility(inlineChannelCreator, View.GONE);
+        if (channelCreationBottomSheet == null)
+            channelCreationBottomSheet = ChannelCreateDialogFragment.newInstance(new ChannelCreateDialogFragment.ChannelCreateListener() {
+                @Override
+                public void onChannelCreated(Claim claimResult) {
+                    // add the claim to the channel list and set it as the selected item
+                    if (commentChannelSpinnerAdapter != null) {
+                        commentChannelSpinnerAdapter.add(claimResult);
+                    }
+                    if (commentChannelSpinner != null && commentChannelSpinnerAdapter != null) {
+                        commentChannelSpinner.setSelection(commentChannelSpinnerAdapter.getCount() - 1);
+                    }
+
+                    if (commentChannelSpinner != null) {
+                        View formRoot = (View) commentChannelSpinner.getParent().getParent();
+                        formRoot.findViewById(R.id.no_channels).setVisibility(View.GONE);
+                        formRoot.setVisibility(View.VISIBLE);
+                    }
+                }
+            });
+
+        MainActivity activity = (MainActivity) getActivity();
+
+        if (activity != null && channelCreationBottomSheet != null) {
+            channelCreationBottomSheet.show(activity.getSupportFragmentManager(), "ModalChannelCreateBottomSheet");
+        }
     }
 
     private void updateChannelList(List<Claim> channels) {
@@ -363,6 +329,12 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
     }
 
     private void initCommentForm(View root) {
+        MainActivity activity = (MainActivity) getActivity();
+
+        if (activity != null) {
+            activity.refreshChannelCreationRequired(root);
+        }
+
         textCommentLimit.setText(String.format("%d / %d", Helper.getValue(inputComment.getText()).length(), Comment.MAX_LENGTH));
 
         buttonClearReplyToComment.setOnClickListener(new View.OnClickListener() {
@@ -376,6 +348,15 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
             @Override
             public void onClick(View view) {
                 validateAndCheckPostComment();
+            }
+        });
+
+        buttonCreateChannel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if (!fetchingChannels) {
+                    showInlineChannelCreator();
+                }
             }
         });
 
@@ -406,9 +387,11 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
                     if (claim.isPlaceholder()) {
                         if (!fetchingChannels) {
                             showInlineChannelCreator();
+                            if (commentChannelSpinnerAdapter.getCount() > 1) {
+                                commentChannelSpinner.setSelection(commentChannelSpinnerAdapter.getCount() - 1);
+                            }
                         }
                     } else {
-                        hideInlineChannelCreator();
                         updatePostAsChannel(claim);
                     }
                 }
@@ -573,125 +556,5 @@ public class ChannelCommentsFragment extends Fragment implements WalletBalanceLi
             Helper.setViewVisibility(root.findViewById(R.id.channel_no_comments),
                     commentListAdapter == null || commentListAdapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
         }
-    }
-
-    private void setupInlineChannelCreator(
-            View container,
-            TextInputEditText inputChannelName,
-            TextInputEditText inputDeposit,
-            View inlineBalanceView,
-            TextView inlineBalanceValue,
-            View linkCancel,
-            MaterialButton buttonCreate,
-            View progressView,
-            AppCompatSpinner channelSpinner,
-            InlineChannelSpinnerAdapter channelSpinnerAdapter) {
-        inputDeposit.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View view, boolean hasFocus) {
-                Helper.setViewVisibility(inlineBalanceView, hasFocus ? View.VISIBLE : View.INVISIBLE);
-            }
-        });
-
-        linkCancel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Helper.setViewText(inputChannelName, null);
-                Helper.setViewText(inputDeposit, null);
-                Helper.setViewVisibility(container, View.GONE);
-            }
-        });
-
-        buttonCreate.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                // validate deposit and channel name
-                String channelNameString = Helper.normalizeChannelName(Helper.getValue(inputChannelName.getText()));
-                Claim claimToSave = new Claim();
-                claimToSave.setName(channelNameString);
-                String channelName = claimToSave.getName().startsWith("@") ? claimToSave.getName().substring(1) : claimToSave.getName();
-                String depositString = Helper.getValue(inputDeposit.getText());
-                if ("@".equals(channelName) || Helper.isNullOrEmpty(channelName)) {
-                    showError(getString(R.string.please_enter_channel_name));
-                    return;
-                }
-                if (!LbryUri.isNameValid(channelName)) {
-                    showError(getString(R.string.channel_name_invalid_characters));
-                    return;
-                }
-                if (Helper.channelExists(channelName)) {
-                    showError(getString(R.string.channel_name_already_created));
-                    return;
-                }
-
-                double depositAmount = 0;
-                try {
-                    depositAmount = Double.valueOf(depositString);
-                } catch (NumberFormatException ex) {
-                    // pass
-                    showError(getString(R.string.please_enter_valid_deposit));
-                    return;
-                }
-                if (depositAmount <= 0.000001) {
-                    String error = getResources().getQuantityString(R.plurals.min_deposit_required, Math.abs(depositAmount-1.0) <= 0.000001 ? 1 : 2, String.valueOf(Helper.MIN_DEPOSIT));
-                    showError(error);
-                    return;
-                }
-                if (Lbry.walletBalance == null || Lbry.walletBalance.getAvailable().doubleValue() < depositAmount) {
-                    showError(getString(R.string.deposit_more_than_balance));
-                    return;
-                }
-
-                ChannelCreateUpdateTask task =  new ChannelCreateUpdateTask(
-                        claimToSave, new BigDecimal(depositString), false, progressView, Lbryio.AUTH_TOKEN, new ClaimResultHandler() {
-                    @Override
-                    public void beforeStart() {
-                        Helper.setViewEnabled(inputChannelName, false);
-                        Helper.setViewEnabled(inputDeposit, false);
-                        Helper.setViewEnabled(buttonCreate, false);
-                        Helper.setViewEnabled(linkCancel, false);
-                    }
-
-                    @Override
-                    public void onSuccess(Claim claimResult) {
-                        if (!BuildConfig.DEBUG) {
-                            LogPublishTask logPublishTask = new LogPublishTask(claimResult);
-                            logPublishTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-                        }
-
-                        // channel created
-                        Bundle bundle = new Bundle();
-                        bundle.putString("claim_id", claimResult.getClaimId());
-                        bundle.putString("claim_name", claimResult.getName());
-                        LbryAnalytics.logEvent(LbryAnalytics.EVENT_CHANNEL_CREATE, bundle);
-
-                        // add the claim to the channel list and set it as the selected item
-                        if (channelSpinnerAdapter != null) {
-                            channelSpinnerAdapter.add(claimResult);
-                        }
-                        if (channelSpinner != null && channelSpinnerAdapter != null) {
-                            channelSpinner.setSelection(channelSpinnerAdapter.getCount() - 1);
-                        }
-
-                        Helper.setViewEnabled(inputChannelName, true);
-                        Helper.setViewEnabled(inputDeposit, true);
-                        Helper.setViewEnabled(buttonCreate, true);
-                        Helper.setViewEnabled(linkCancel, true);
-                    }
-
-                    @Override
-                    public void onError(Exception error) {
-                        Helper.setViewEnabled(inputChannelName, true);
-                        Helper.setViewEnabled(inputDeposit, true);
-                        Helper.setViewEnabled(buttonCreate, true);
-                        Helper.setViewEnabled(linkCancel, true);
-                        showError(error.getMessage());
-                    }
-                });
-                task.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
-            }
-        });
-
-        Helper.setViewText(inlineBalanceValue, Helper.shortCurrencyFormat(Lbry.walletBalance.getAvailable().doubleValue()));
     }
 }
