@@ -274,6 +274,7 @@ public class FileViewFragment extends BaseFragment implements
     private ImageView commentPostAsThumbnail;
     private View commentPostAsNoThumbnail;
     private TextView commentPostAsAlpha;
+    private MaterialButton buttonCommentSignedInUserRequired;
 
     ChannelCreateDialogFragment channelCreationBottomSheet;
 
@@ -311,6 +312,7 @@ public class FileViewFragment extends BaseFragment implements
         commentPostAsThumbnail = root.findViewById(R.id.comment_form_thumbnail);
         commentPostAsNoThumbnail = root.findViewById(R.id.comment_form_no_thumbnail);
         commentPostAsAlpha = root.findViewById(R.id.comment_form_thumbnail_alpha);
+        buttonCommentSignedInUserRequired = root.findViewById(R.id.sign_in_user_button);
         textNothingAtLocation = root.findViewById(R.id.nothing_at_location_text);
 
         likeReactionAmount = root.findViewById(R.id.likes_amount);
@@ -1050,9 +1052,7 @@ public class FileViewFragment extends BaseFragment implements
         root.findViewById(R.id.file_view_action_like).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                AccountManager am = AccountManager.get(root.getContext());
-                Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
-                if (claim != null && odyseeAccount != null) {
+                if (claim != null) {
                     react(claim, true);
                 }
             }
@@ -1060,9 +1060,7 @@ public class FileViewFragment extends BaseFragment implements
         root.findViewById(R.id.file_view_action_dislike).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                AccountManager am = AccountManager.get(root.getContext());
-                Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
-                if (claim != null && odyseeAccount != null) {
+                if (claim != null) {
                     react(claim, false);
                 }
             }
@@ -3571,6 +3569,17 @@ public class FileViewFragment extends BaseFragment implements
             }
         });
 
+        buttonCommentSignedInUserRequired.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                MainActivity activity = (MainActivity) getActivity();
+
+                if (activity != null) {
+                    activity.simpleSignIn(0);
+                }
+            }
+        });
+
         inputComment.addTextChangedListener(new TextWatcher() {
             @Override
             public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
@@ -3784,97 +3793,99 @@ public class FileViewFragment extends BaseFragment implements
     }
 
     private void react(Comment comment, boolean like) {
-        if (Lbry.ownChannels.size() > 0) {
-            JSONObject options = new JSONObject();
-            try {
-                options.put("comment_ids", comment.getId());
-                options.put("type", like ? "like" : "dislike");
-                options.put("clear_types", like ? "dislike" : "like");
+        AccountManager am = AccountManager.get(getContext());
+        Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
 
-                if ((like && comment.getReactions().isLiked()) || (!like && comment.getReactions().isDisliked()))
-                    options.put("remove", true);
+        if (odyseeAccount != null) {
+            if (Lbry.ownChannels.size() > 0) {
+                JSONObject options = new JSONObject();
+                try {
+                    options.put("comment_ids", comment.getId());
+                    options.put("type", like ? "like" : "dislike");
+                    options.put("clear_types", like ? "dislike" : "like");
 
-                AccountManager am = AccountManager.get(getContext());
-                Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
-                if (odyseeAccount != null) {
+                    if ((like && comment.getReactions().isLiked()) || (!like && comment.getReactions().isDisliked()))
+                        options.put("remove", true);
+
                     options.put("auth_token", am.peekAuthToken(odyseeAccount, "auth_token_type"));
+                } catch (JSONException e) {
+                    e.printStackTrace();
                 }
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
 
-            AccountManager am = AccountManager.get(getContext());
-            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
-                Supplier<Boolean> task = new ReactToCommentSupplier(am, options);
-                CompletableFuture<Boolean> completableFuture = CompletableFuture.supplyAsync(task);
-                completableFuture.thenAccept(result -> {
-                    if (result) {
-                        refreshCommentAfterReacting(comment);
-                    }
-                });
-            } else {
-                Thread thread = new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        // This makes a network connection, so it needs to be executed on a different thread than main.
-                        if (Lbry.ownChannels.size() > 0) {
-                            try {
-                                options.put("channel_id", Lbry.ownChannels.get(0).getClaimId());
-                                options.put("channel_name", Lbry.ownChannels.get(0).getName());
-                                JSONObject jsonChannelSign = Comments.channelSign(options, options.getString("channel_id"), options.getString("channel_name"));
+                if (Build.VERSION.SDK_INT > Build.VERSION_CODES.M) {
+                    Supplier<Boolean> task = new ReactToCommentSupplier(am, options);
+                    CompletableFuture<Boolean> completableFuture = CompletableFuture.supplyAsync(task);
+                    completableFuture.thenAccept(result -> {
+                        if (result) {
+                            refreshCommentAfterReacting(comment);
+                        }
+                    });
+                } else {
+                    Thread thread = new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            // This makes a network connection, so it needs to be executed on a different thread than main.
+                            if (Lbry.ownChannels.size() > 0) {
+                                try {
+                                    options.put("channel_id", Lbry.ownChannels.get(0).getClaimId());
+                                    options.put("channel_name", Lbry.ownChannels.get(0).getName());
+                                    JSONObject jsonChannelSign = Comments.channelSign(options, options.getString("channel_id"), options.getString("channel_name"));
 
-                                if (jsonChannelSign.has("signature") && jsonChannelSign.has("signing_ts")) {
-                                    options.put("signature", jsonChannelSign.getString("signature"));
-                                    options.put("signing_ts", jsonChannelSign.getString("signing_ts"));
+                                    if (jsonChannelSign.has("signature") && jsonChannelSign.has("signing_ts")) {
+                                        options.put("signature", jsonChannelSign.getString("signature"));
+                                        options.put("signing_ts", jsonChannelSign.getString("signing_ts"));
+                                    }
+                                } catch (JSONException | ApiCallException e) {
+                                    e.printStackTrace();
                                 }
-                            } catch (JSONException | ApiCallException e) {
+                            }
+                            ExecutorService executor = Executors.newSingleThreadExecutor();
+                            Callable<Boolean> callable = new Callable<Boolean>() {
+                                @Override
+                                public Boolean call() {
+                                    JSONObject data = null;
+                                    if (am.getAccounts().length > 0) {
+                                        Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
+                                        try {
+                                            if (odyseeAccount != null) {
+                                                Response response = Comments.performRequest(options, "reaction.React");
+                                                String responseString = response.body().string();
+                                                JSONObject jsonResponse = new JSONObject(responseString);
+                                                if (jsonResponse.has("result")) {
+                                                    data = jsonResponse.getJSONObject("result");
+                                                } else {
+                                                    Log.e("ReactingToComment", jsonResponse.getJSONObject("error").getString("message"));
+                                                }
+                                                response.close();
+                                            }
+                                        } catch (Exception e) {
+                                            e.printStackTrace();
+                                        }
+                                    }
+                                    return data != null && !data.has("error");
+                                }
+                            };
+                            Future<Boolean> futureReactions = executor.submit(callable);
+                            Boolean result;
+                            try {
+                                // This runs on a different thread, so it will not block main thread
+                                result = futureReactions.get();
+                                if (result) {
+                                    refreshCommentAfterReacting(comment);
+                                }
+                            } catch (InterruptedException | ExecutionException e) {
                                 e.printStackTrace();
                             }
                         }
-                        ExecutorService executor = Executors.newSingleThreadExecutor();
-                        Callable<Boolean> callable = new Callable<Boolean>() {
-                            @Override
-                            public Boolean call() {
-                                JSONObject data = null;
-                                if (am.getAccounts().length > 0) {
-                                    Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
-                                    try {
-                                        if (odyseeAccount != null) {
-                                            Response response = Comments.performRequest(options, "reaction.React");
-                                            String responseString = response.body().string();
-                                            JSONObject jsonResponse = new JSONObject(responseString);
-                                            if (jsonResponse.has("result")) {
-                                                data = jsonResponse.getJSONObject("result");
-                                            } else {
-                                                Log.e("ReactingToComment", jsonResponse.getJSONObject("error").getString("message"));
-                                            }
-                                            response.close();
-                                        }
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                    }
-                                }
-                                return data != null && !data.has("error");
-                            }
-                        };
-                        Future<Boolean> futureReactions = executor.submit(callable);
-                        Boolean result;
-                        try {
-                            // This runs on a different thread, so it will not block main thread
-                            result = futureReactions.get();
-                            if (result) {
-                                refreshCommentAfterReacting(comment);
-                            }
-                        } catch (InterruptedException | ExecutionException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                });
+                    });
 
-                thread.start();
+                    thread.start();
+                }
+            } else {
+                showInlineChannelCreator();
             }
         } else {
-            showInlineChannelCreator();
+            showError(getString(R.string.signed_in_required));
         }
     }
 
@@ -3896,40 +3907,47 @@ public class FileViewFragment extends BaseFragment implements
     }
 
     private void react(Claim claim, boolean like) {
-        if (Lbry.ownChannels.size() > 0) {
-            Runnable runnable = () -> {
-                purgeLoadingReactionsTask();
+        AccountManager am = AccountManager.get(getContext());
+        Account odyseeAccount = Helper.getOdyseeAccount(am.getAccounts());
 
-                Map<String, String> options = new HashMap<>();
-                options.put("claim_ids", claim.getClaimId());
-                options.put("type", like ? "like" : "dislike");
-                options.put("clear_types", like ? "dislike" : "like");
+        if (odyseeAccount != null) {
+            if (Lbry.ownChannels.size() > 0) {
+                Runnable runnable = () -> {
+                    purgeLoadingReactionsTask();
 
-                if ((like && claim.isLiked()) || (!like && claim.isDisliked()))
-                    options.put("remove", "true");
+                    Map<String, String> options = new HashMap<>();
+                    options.put("claim_ids", claim.getClaimId());
+                    options.put("type", like ? "like" : "dislike");
+                    options.put("clear_types", like ? "dislike" : "like");
+
+                    if ((like && claim.isLiked()) || (!like && claim.isDisliked()))
+                        options.put("remove", "true");
+
+                    try {
+                        JSONObject jsonResponse = (JSONObject) Lbryio.parseResponse(Lbryio.call("reaction", "react", options, Helper.METHOD_POST, getContext()));
+
+                        if (jsonResponse != null && jsonResponse.has(claim.getClaimId())) {
+                            reactions.setLiked(jsonResponse.getJSONObject(claim.getClaimId()).has("like") && !reactions.isLiked());
+                            reactions.setDisliked(jsonResponse.getJSONObject(claim.getClaimId()).has("dislike") && !reactions.isDisliked());
+                            updateContentReactions();
+                        }
+                    } catch (LbryioRequestException | LbryioResponseException | JSONException e) {
+                        e.printStackTrace();
+                    } finally {
+                        loadReactions(claim);
+                    }
+                };
 
                 try {
-                    JSONObject jsonResponse = (JSONObject) Lbryio.parseResponse(Lbryio.call("reaction", "react", options, Helper.METHOD_POST, getContext()));
-
-                    if (jsonResponse != null && jsonResponse.has(claim.getClaimId())) {
-                        reactions.setLiked(jsonResponse.getJSONObject(claim.getClaimId()).has("like") && !reactions.isLiked());
-                        reactions.setDisliked(jsonResponse.getJSONObject(claim.getClaimId()).has("dislike") && !reactions.isDisliked());
-                        updateContentReactions();
-                    }
-                } catch (LbryioRequestException | LbryioResponseException | JSONException e) {
+                    new Thread(runnable).start();
+                } catch (Exception e) {
                     e.printStackTrace();
-                } finally {
-                    loadReactions(claim);
                 }
-            };
-
-            try {
-                new Thread(runnable).start();
-            } catch (Exception e) {
-                e.printStackTrace();
+            } else {
+                showInlineChannelCreator();
             }
         } else {
-            showInlineChannelCreator();
+            showError(getString(R.string.signed_in_required));
         }
     }
 
