@@ -86,6 +86,7 @@ import com.google.android.material.snackbar.Snackbar;
 import com.google.firebase.messaging.FirebaseMessaging;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.MainThread;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.ActionBar;
@@ -2804,10 +2805,12 @@ public class MainActivity extends AppCompatActivity implements SharedPreferences
         Snackbar.make(findViewById(R.id.content_main), message, Snackbar.LENGTH_LONG).show();
     }
     public void showError(String message) {
-        Snackbar.make(findViewById(R.id.content_main), message, Snackbar.LENGTH_LONG).
-                setBackgroundTint(Color.RED).setTextColor(Color.WHITE).show();
+        showError(message, findViewById(R.id.content_main));
     }
 
+    public void showError(String message, @NotNull View root) {
+        Snackbar.make(root, message, Snackbar.LENGTH_LONG).setBackgroundTint(Color.RED).setTextColor(Color.WHITE).show();
+    }
     public void showNotifications() {
         findViewById(R.id.content_main_container).setVisibility(View.GONE);
         findViewById(R.id.notifications_container).setVisibility(View.VISIBLE);
