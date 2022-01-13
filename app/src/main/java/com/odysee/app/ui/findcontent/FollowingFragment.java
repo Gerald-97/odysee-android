@@ -24,8 +24,6 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -633,18 +631,7 @@ public class FollowingFragment extends BaseFragment implements
                 claims = Helper.filterClaimsByOutpoint(claims);
                 claims = Helper.filterClaimsByBlockedChannels(claims, Lbryio.blockedChannels);
 
-                // Sort claims so those which are livestreaming now are shwon on the top of the list
-                Collections.sort(claims, new Comparator<Claim>() {
-                    @Override
-                    public int compare(Claim claim, Claim t1) {
-                        if (claim.isLive() && !t1.isLive())
-                            return -1;
-                        else if (!claim.isLive() && t1.isLive())
-                            return 1;
-                        else
-                            return 0;
-                    }
-                });
+                claims = Helper.sortingLivestreamingFirst(claims);
 
                 if (contentListAdapter == null) {
                     Context context = getContext();
