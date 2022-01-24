@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.view.LayoutInflater;
+import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ProgressBar;
@@ -45,17 +46,20 @@ import com.odysee.app.utils.Helper;
 import com.odysee.app.utils.Lbry;
 import com.odysee.app.utils.LbryAnalytics;
 import com.odysee.app.utils.LbryUri;
+import com.odysee.app.utils.Lbryio;
+
 import lombok.Setter;
 
 public class SearchFragment extends BaseFragment implements
         ClaimListAdapter.ClaimListItemListener, DownloadActionListener, SharedPreferences.OnSharedPreferenceChangeListener {
+    public static final int SEARCH_CONTEXT_GROUP_ID = 3;
     private static final int PAGE_SIZE = 25;
 
     private ClaimListAdapter resultListAdapter;
     private ProgressBar loadingView;
     private RecyclerView resultList;
-    private TextView noQueryView;
-    private TextView noResultsView;
+    private TextView explainerView;
+    private View lassoSpacemanView;
 
     @Setter
     private String currentQuery;
@@ -68,8 +72,8 @@ public class SearchFragment extends BaseFragment implements
         View root = inflater.inflate(R.layout.fragment_search, container, false);
 
         loadingView = root.findViewById(R.id.search_loading);
-        noQueryView = root.findViewById(R.id.search_no_query);
-        noResultsView = root.findViewById(R.id.search_no_results);
+        explainerView = root.findViewById(R.id.search_explainer);
+        lassoSpacemanView = root.findViewById(R.id.lasso_spaceman);
 
         resultList = root.findViewById(R.id.search_result_list);
         LinearLayoutManager llm = new LinearLayoutManager(getContext());
@@ -101,39 +105,64 @@ public class SearchFragment extends BaseFragment implements
         return root;
     }
 
+    @Override
+    public boolean onContextItemSelected(MenuItem item) {
+        if (item.getGroupId() == SEARCH_CONTEXT_GROUP_ID && item.getItemId() == R.id.action_block) {
+            if (resultListAdapter != null) {
+                int position = resultListAdapter.getPosition();
+                Claim claim = resultListAdapter.getItems().get(position);
+                if (claim != null && claim.getSigningChannel() != null) {
+                    Claim channel = claim.getSigningChannel();
+                    Context context = getContext();
+                    if (context instanceof MainActivity) {
+                        ((MainActivity) context).handleBlockChannel(channel);
+                    }
+                }
+            }
+            return true;
+        }
+
+        return super.onContextItemSelected(item);
+    }
+
     public void onResume() {
         super.onResume();
         Context context = getContext();
         Helper.setWunderbarValue(currentQuery, context);
-        PreferenceManager.getDefaultSharedPreferences(context).registerOnSharedPreferenceChangeListener(this);
-        if (context instanceof MainActivity) {
-            MainActivity activity = (MainActivity) context;
-            LbryAnalytics.setCurrentScreen(activity, "Search", "Search");
-            activity.addDownloadActionListener(this);
+        if (context != null) {
+            PreferenceManager.getDefaultSharedPreferences(context).registerOnSharedPreferenceChangeListener(this);
+            if (context instanceof MainActivity) {
+                MainActivity activity = (MainActivity) context;
+                LbryAnalytics.setCurrentScreen(activity, "Search", "Search");
+                activity.addDownloadActionListener(this);
+            }
         }
         if (!Helper.isNullOrEmpty(currentQuery)) {
             logSearch(currentQuery);
             search(currentQuery, currentFrom);
         } else {
-            noQueryView.setVisibility(View.VISIBLE);
-            noResultsView.setVisibility(View.GONE);
+            lassoSpacemanView.setVisibility(View.VISIBLE);
+            explainerView.setText(getString(R.string.search_type_to_discover));
+            explainerView.setVisibility(View.VISIBLE);
         }
+
+        applyFilterForBlockedChannels(Lbryio.blockedChannels);
     }
 
     public void onPause() {
         Context context = getContext();
         if (context != null) {
             ((MainActivity) context).removeDownloadActionListener(this);
+            PreferenceManager.getDefaultSharedPreferences(context).unregisterOnSharedPreferenceChangeListener(this);
         }
-        PreferenceManager.getDefaultSharedPreferences(context).unregisterOnSharedPreferenceChangeListener(this);
         super.onPause();
     }
 
     @Override
     public void onStop() {
-        Context context = getContext();
-        if (context != null) {
-            ((MainActivity) context).showBottomNavigation();
+        MainActivity activity = (MainActivity) getContext();
+        if (activity != null) {
+            activity.showBottomNavigation();
         }
 
         super.onStop();
@@ -150,6 +179,12 @@ public class SearchFragment extends BaseFragment implements
             return true;
         }
 
+        if (Helper.isNullOrEmpty(query)) {
+            lassoSpacemanView.setVisibility(View.VISIBLE);
+            explainerView.setText(getString(R.string.search_type_to_discover));
+            resultList.setVisibility(View.GONE);
+            explainerView.setVisibility(View.VISIBLE);
+        }
         return false;
     }
 
@@ -233,6 +268,10 @@ public class SearchFragment extends BaseFragment implements
 
     public void search(String query, int from) {
         boolean queryChanged = checkQuery(query);
+
+        if (query.equals("")) {
+            return;
+        }
         if (!queryChanged && from > 0) {
             currentFrom = from;
         }
@@ -279,6 +318,7 @@ public class SearchFragment extends BaseFragment implements
                             if (context != null) {
                                 if (resultListAdapter == null) {
                                     resultListAdapter = new ClaimListAdapter(sanitizedClaims, context);
+                                    resultListAdapter.setContextGroupId(SEARCH_CONTEXT_GROUP_ID);
                                     resultListAdapter.addFeaturedItem(buildFeaturedItem(query));
                                     resolveFeaturedItem(buildVanityUrl(query));
                                     resultListAdapter.setListener(SearchFragment.this);
@@ -286,13 +326,16 @@ public class SearchFragment extends BaseFragment implements
                                         resultList.setAdapter(resultListAdapter);
                                     }
                                 } else {
+                                    resultList.setVisibility(View.VISIBLE);
                                     resultListAdapter.addItems(sanitizedClaims);
                                 }
 
+                                resultListAdapter.filterBlockedChannels(Lbryio.blockedChannels);
+
                                 int itemCount = resultListAdapter.getItemCount();
-                                Helper.setViewVisibility(noQueryView, View.GONE);
-                                Helper.setViewVisibility(noResultsView, itemCount == 0 ? View.VISIBLE : View.GONE);
-                                Helper.setViewText(noResultsView, getString(R.string.search_no_results, currentQuery));
+                                Helper.setViewText(explainerView, getString(R.string.search_no_results, currentQuery));
+                                Helper.setViewVisibility(lassoSpacemanView, itemCount == 0 ? View.VISIBLE : View.GONE);
+                                Helper.setViewVisibility(explainerView, itemCount == 0 ? View.VISIBLE : View.GONE);
                             }
                         }
                     });
@@ -362,10 +405,10 @@ public class SearchFragment extends BaseFragment implements
             public void onError(Exception error) {
                 Context context = getContext();
                 int itemCount = resultListAdapter == null ? 0 : resultListAdapter.getItemCount();
-                Helper.setViewVisibility(noQueryView, View.GONE);
-                Helper.setViewVisibility(noResultsView, itemCount == 0 ? View.VISIBLE : View.GONE);
+                Helper.setViewVisibility(lassoSpacemanView, itemCount == 0 ? View.VISIBLE : View.GONE);
+                Helper.setViewVisibility(explainerView, itemCount == 0 ? View.VISIBLE : View.GONE);
                 if (context != null) {
-                    Helper.setViewText(noResultsView, getString(R.string.search_no_results, currentQuery));
+                    Helper.setViewText(explainerView, getString(R.string.search_no_results, currentQuery));
                 }
                 searchLoading = false;
             }
@@ -384,8 +427,8 @@ public class SearchFragment extends BaseFragment implements
             MainActivity activity = (MainActivity) context;
             if (claim.isUnresolved()) {
                 // open the publish page
-                Map<String, Object> params = new HashMap<>();
-                params.put("suggestedUrl", claim.getName());
+//                Map<String, Object> params = new HashMap<>();
+//                params.put("suggestedUrl", claim.getName());
 //                activity.openFragment(PublishFragment.class, true, NavMenuItem.ID_ITEM_NEW_PUBLISH, params);
             } else if (claim.getName().startsWith("@")) {
                 activity.openChannelClaim(claim);
@@ -393,6 +436,12 @@ public class SearchFragment extends BaseFragment implements
                 // not a channel
                 activity.openFileClaim(claim);
             }
+        }
+    }
+
+    public void applyFilterForBlockedChannels(List<LbryUri> blockedChannels) {
+        if (resultListAdapter != null) {
+            resultListAdapter.filterBlockedChannels(blockedChannels);
         }
     }
 

@@ -49,6 +49,9 @@ import com.odysee.app.tasks.claim.ResolveTask;
 import com.odysee.app.utils.Helper;
 import com.odysee.app.utils.Lbry;
 import com.odysee.app.utils.LbryAnalytics;
+import com.odysee.app.utils.LbryUri;
+import com.odysee.app.utils.Lbryio;
+
 import lombok.Setter;
 
 public class ChannelCommentsFragment extends Fragment implements ChannelCreateDialogFragment.ChannelCreateListener {
@@ -114,6 +117,7 @@ public class ChannelCommentsFragment extends Fragment implements ChannelCreateDi
 
         fetchChannels();
         checkAndLoadComments();
+        applyFilterForBlockedChannels(Lbryio.blockedChannels);
     }
 
     public void onStop() {
@@ -219,6 +223,9 @@ public class ChannelCommentsFragment extends Fragment implements ChannelCreateDi
                                     commentListAdapter.updatePosterForComment(claim.getClaimId(), claim);
                                 }
                             }
+
+                            commentListAdapter.filterBlockedChannels(Lbryio.blockedChannels);
+
                             commentListAdapter.notifyDataSetChanged();
                         }
                     }
@@ -562,6 +569,12 @@ public class ChannelCommentsFragment extends Fragment implements ChannelCreateDi
         if (root != null) {
             Helper.setViewVisibility(root.findViewById(R.id.channel_no_comments),
                     commentListAdapter == null || commentListAdapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    public void applyFilterForBlockedChannels(List<LbryUri> blockedChannels) {
+        if (commentListAdapter != null) {
+            commentListAdapter.filterBlockedChannels(blockedChannels);
         }
     }
 }
